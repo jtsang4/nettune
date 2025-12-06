@@ -217,3 +217,57 @@ func (m *QdiscManager) GetInterfaceMTU(iface string) (int, error) {
 	}
 	return netIface.MTU, nil
 }
+
+// ValidQdiscParams defines valid parameters for each qdisc type
+var ValidQdiscParams = map[string][]string{
+	"fq": {
+		"limit", "flow_limit", "quantum", "initial_quantum",
+		"maxrate", "buckets", "pacing", "nopacing", "refill_delay",
+		"low_rate_threshold", "orphan_mask", "timer_slack",
+		"ce_threshold", "horizon", "horizon_cap", "horizon_drop",
+	},
+	"fq_codel": {
+		"limit", "flows", "target", "interval", "quantum",
+		"ecn", "noecn", "ce_threshold", "memory_limit",
+	},
+	"cake": {
+		"bandwidth", "besteffort", "diffserv3", "diffserv4", "diffserv8",
+		"flowblind", "srchost", "dsthost", "hosts", "flows",
+		"dual-srchost", "dual-dsthost", "nat", "nonat",
+		"wash", "nowash", "split-gso", "no-split-gso",
+		"ack-filter", "ack-filter-aggressive", "no-ack-filter",
+		"memlimit", "fwmark", "atm", "noatm", "ptm", "noptm",
+		"overhead", "mpu", "ingress", "egress",
+		"rtt", "raw", "conservative",
+	},
+	"pfifo_fast": {}, // No additional params
+}
+
+// ValidateQdiscParams validates qdisc parameters for a given qdisc type
+func (m *QdiscManager) ValidateQdiscParams(qdiscType string, params map[string]interface{}) error {
+	validParams, ok := ValidQdiscParams[qdiscType]
+	if !ok {
+		return fmt.Errorf("unknown qdisc type: %s", qdiscType)
+	}
+
+	// Create a set for O(1) lookup
+	validSet := make(map[string]bool)
+	for _, p := range validParams {
+		validSet[p] = true
+	}
+
+	// Check each provided parameter
+	var invalidParams []string
+	for key := range params {
+		if !validSet[key] {
+			invalidParams = append(invalidParams, key)
+		}
+	}
+
+	if len(invalidParams) > 0 {
+		return fmt.Errorf("invalid parameter(s) for qdisc '%s': %v. Valid parameters: %v",
+			qdiscType, invalidParams, validParams)
+	}
+
+	return nil
+}

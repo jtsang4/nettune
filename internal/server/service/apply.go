@@ -336,6 +336,13 @@ func (s *ApplyService) applyChanges(profile *types.Profile) error {
 
 	// Apply qdisc changes
 	if profile.Qdisc != nil {
+		// Validate qdisc parameters before applying
+		if profile.Qdisc.Params != nil {
+			if err := s.adapter.Qdisc.ValidateQdiscParams(profile.Qdisc.Type, profile.Qdisc.Params); err != nil {
+				return fmt.Errorf("qdisc validation failed: %w", err)
+			}
+		}
+
 		var interfaces []string
 		if profile.Qdisc.Interfaces == "default-route" {
 			iface, err := s.adapter.Qdisc.GetDefaultRouteInterface()

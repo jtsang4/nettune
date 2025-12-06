@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jtsang4/nettune/internal/client/http"
@@ -216,7 +217,11 @@ func (s *Server) registerTools() {
 				mcp.Enum("default-route", "all"),
 			),
 			mcp.WithObject("qdisc_params",
-				mcp.Description("Additional qdisc parameters (type-specific, e.g., {'flow_limit': '10000'} for fq)"),
+				mcp.Description("Additional qdisc parameters. Valid params by type: "+
+					"fq: limit, flow_limit, quantum, initial_quantum, maxrate, buckets, pacing, nopacing, refill_delay, low_rate_threshold, orphan_mask, timer_slack, ce_threshold, horizon; "+
+					"fq_codel: limit, flows, target, interval, quantum, ecn, noecn, ce_threshold, memory_limit; "+
+					"cake: bandwidth, besteffort, diffserv3, diffserv4, diffserv8, flowblind, srchost, dsthost, hosts, flows, memlimit, rtt, overhead; "+
+					"pfifo_fast: (no params). Example: {'limit': 10000} for fq."),
 			),
 			mcp.WithBoolean("systemd_ensure_qdisc_service",
 				mcp.Description("Whether to create a systemd service to persist qdisc settings across reboots (default: false)"),
@@ -310,6 +315,13 @@ func (s *Server) handleShowProfile(ctx context.Context, request mcp.CallToolRequ
 
 	profile, err := s.client.GetProfile(profileID)
 	if err != nil {
+		// Provide helpful guidance when profile not found
+		errMsg := err.Error()
+		if containsAny(errMsg, "not found", "NOT_FOUND") {
+			return mcp.NewToolResultError(fmt.Sprintf(
+				"Error: profile '%s' not found. Use nettune.list_profiles to see available profiles, or nettune.create_profile to create a new one.",
+				profileID)), nil
+		}
 		return mcp.NewToolResultError(fmt.Sprintf("Error: %v", err)), nil
 	}
 
@@ -323,7 +335,7 @@ func (s *Server) handleApplyProfile(ctx context.Context, request mcp.CallToolReq
 	autoRollback := getIntArg(args, "auto_rollback_seconds", 60)
 
 	if profileID == "" {
-		return mcp.NewToolResultError("Error: profile_id is required"), nil
+		return mcp.NewToolResultError("Error: profile_id is required. Use nettune.list_profiles to see available profiles."), nil
 	}
 
 	req := &types.ApplyRequest{
@@ -334,6 +346,18 @@ func (s *Server) handleApplyProfile(ctx context.Context, request mcp.CallToolReq
 
 	result, err := s.client.Apply(req)
 	if err != nil {
+		errMsg := err.Error()
+		// Provide helpful guidance based on error type
+		if containsAny(errMsg, "not found", "NOT_FOUND") {
+			return mcp.NewToolResultError(fmt.Sprintf(
+				"Error: profile '%s' not found. Use nettune.list_profiles to see available profiles, or nettune.create_profile to create a new one.",
+				profileID)), nil
+		}
+		if containsAny(errMsg, "connection refused", "no such host", "timeout") {
+			return mcp.NewToolResultError(fmt.Sprintf(
+				"Error: cannot connect to nettune server. Please verify: 1) Server is running, 2) Server URL is correct, 3) Network connectivity. Original error: %v",
+				err)), nil
+		}
 		return mcp.NewToolResultError(fmt.Sprintf("Error: %v", err)), nil
 	}
 
@@ -346,7 +370,7 @@ func (s *Server) handleRollback(ctx context.Context, request mcp.CallToolRequest
 	rollbackLast := getBoolArg(args, "rollback_last", false)
 
 	if snapshotID == "" && !rollbackLast {
-		return mcp.NewToolResultError("Error: either snapshot_id or rollback_last is required"), nil
+		return mcp.NewToolResultError("Error: either snapshot_id or rollback_last=true is required. Use rollback_last=true to rollback to the most recent snapshot, or provide a specific snapshot_id."), nil
 	}
 
 	req := &types.RollbackRequest{
@@ -356,6 +380,16 @@ func (s *Server) handleRollback(ctx context.Context, request mcp.CallToolRequest
 
 	result, err := s.client.Rollback(req)
 	if err != nil {
+		errMsg := err.Error()
+		if containsAny(errMsg, "no snapshot", "snapshot not found", "NOT_FOUND") {
+			return mcp.NewToolResultError(
+				"Error: snapshot not found. Make sure you have created a snapshot using nettune.snapshot_server before applying changes. Use rollback_last=true to rollback to the most recent snapshot."), nil
+		}
+		if containsAny(errMsg, "connection refused", "no such host", "timeout") {
+			return mcp.NewToolResultError(fmt.Sprintf(
+				"Error: cannot connect to nettune server. Please verify the server is running. Original error: %v",
+				err)), nil
+		}
 		return mcp.NewToolResultError(fmt.Sprintf("Error: %v", err)), nil
 	}
 
@@ -445,6 +479,19 @@ func (s *Server) handleCreateProfile(ctx context.Context, request mcp.CallToolRe
 	// Create profile via HTTP client
 	result, err := s.client.CreateProfile(profile)
 	if err != nil {
+		errMsg := err.Error()
+		// Provide helpful guidance based on error type
+		if containsAny(errMsg, "validation", "invalid") {
+			// Validation error - the error message already contains details about what's wrong
+			return mcp.NewToolResultError(fmt.Sprintf(
+				"Error creating profile: %v. Please check parameter values and try again.",
+				err)), nil
+		}
+		if containsAny(errMsg, "connection refused", "no such host", "timeout") {
+			return mcp.NewToolResultError(fmt.Sprintf(
+				"Error: cannot connect to nettune server. Please verify the server is running. Original error: %v",
+				err)), nil
+		}
 		return mcp.NewToolResultError(fmt.Sprintf("Error creating profile: %v", err)), nil
 	}
 
@@ -536,4 +583,14 @@ func toJSON(v interface{}) string {
 		return fmt.Sprintf("Error marshaling result: %v", err)
 	}
 	return string(data)
+}
+
+// containsAny checks if s contains any of the substrings
+func containsAny(s string, substrs ...string) bool {
+	for _, substr := range substrs {
+		if strings.Contains(strings.ToLower(s), strings.ToLower(substr)) {
+			return true
+		}
+	}
+	return false
 }
