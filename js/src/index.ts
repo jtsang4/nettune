@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 /**
  * nettune-mcp - MCP stdio wrapper for nettune
  *
