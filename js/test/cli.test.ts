@@ -7,7 +7,6 @@ describe('buildClientArgs', () => {
     const options: CLIOptions = {
       apiKey: 'test-key',
       server: 'http://localhost:9876',
-      mcpName: 'nettune',
       version: 'latest',
       verbose: false,
     };
@@ -18,15 +17,12 @@ describe('buildClientArgs', () => {
     expect(args).toContain('test-key');
     expect(args).toContain('--server');
     expect(args).toContain('http://localhost:9876');
-    expect(args).toContain('--mcp-name');
-    expect(args).toContain('nettune');
   });
 
   test('includes all required arguments in correct order', () => {
     const options: CLIOptions = {
       apiKey: 'my-api-key',
       server: 'http://example.com:9876',
-      mcpName: 'custom-name',
       version: 'v1.0.0',
       verbose: true,
     };
@@ -50,7 +46,6 @@ describe('validateOptions', () => {
     const options: CLIOptions = {
       apiKey: 'test-key',
       server: 'http://localhost:9876',
-      mcpName: 'nettune',
       version: 'latest',
       verbose: false,
     };
@@ -62,7 +57,6 @@ describe('validateOptions', () => {
     const options: CLIOptions = {
       apiKey: '',
       server: 'http://localhost:9876',
-      mcpName: 'nettune',
       version: 'latest',
       verbose: false,
     };
@@ -74,23 +68,10 @@ describe('validateOptions', () => {
     const options: CLIOptions = {
       apiKey: 'test-key',
       server: 'not-a-valid-url',
-      mcpName: 'nettune',
       version: 'latest',
       verbose: false,
     };
 
     expect(() => validateOptions(options)).toThrow('Invalid server URL');
-  });
-
-  test('throws on empty MCP name', () => {
-    const options: CLIOptions = {
-      apiKey: 'test-key',
-      server: 'http://localhost:9876',
-      mcpName: '',
-      version: 'latest',
-      verbose: false,
-    };
-
-    expect(() => validateOptions(options)).toThrow('MCP name cannot be empty');
   });
 });

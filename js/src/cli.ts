@@ -27,11 +27,6 @@ export function parseArgs(): CLIOptions {
       'http://127.0.0.1:9876'
     )
     .option(
-      '--mcp-name <name>',
-      'MCP server name identifier',
-      'nettune'
-    )
-    .option(
       '--version-tag <version>',
       'Specific nettune version to use',
       'latest'
@@ -48,7 +43,6 @@ export function parseArgs(): CLIOptions {
   return {
     apiKey: opts.apiKey as string,
     server: opts.server as string,
-    mcpName: opts.mcpName as string,
     version: opts.versionTag as string,
     verbose: opts.verbose as boolean,
   };
@@ -65,9 +59,6 @@ export function buildClientArgs(options: CLIOptions): string[] {
 
   // Server URL
   args.push('--server', options.server);
-
-  // MCP name
-  args.push('--mcp-name', options.mcpName);
 
   return args;
 }
@@ -87,10 +78,5 @@ export function validateOptions(options: CLIOptions): void {
     new URL(options.server);
   } catch {
     throw new Error(`Invalid server URL: ${options.server}`);
-  }
-
-  // MCP name should not be empty
-  if (!options.mcpName || options.mcpName.trim() === '') {
-    throw new Error('MCP name cannot be empty');
   }
 }

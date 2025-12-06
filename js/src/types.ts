@@ -65,8 +65,11 @@ export interface CLIOptions {
   apiKey: string;
   /** Server URL, defaults to http://127.0.0.1:9876 */
   server: string;
-  /** MCP server name identifier */
-  mcpName: string;
+  /**
+   * MCP server name identifier (deprecated, no longer used by the Go client)
+   * Kept optional for backwards compatibility with older callers.
+   */
+  mcpName?: string;
   /** Specific version to use */
   version: string;
   /** Enable verbose/debug logging */
