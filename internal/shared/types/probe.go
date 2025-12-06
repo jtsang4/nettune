@@ -22,12 +22,15 @@ type RTTResult struct {
 
 // ThroughputResult represents throughput test results
 type ThroughputResult struct {
-	Direction      string   `json:"direction"` // "download" | "upload"
-	Bytes          int64    `json:"bytes"`
-	DurationMs     int64    `json:"duration_ms"`
-	ThroughputMbps float64  `json:"throughput_mbps"`
-	Parallel       int      `json:"parallel"`
-	Errors         []string `json:"errors,omitempty"`
+	Direction      string    `json:"direction"` // "download" | "upload"
+	Bytes          int64     `json:"bytes"`
+	DurationMs     int64     `json:"duration_ms"`
+	ThroughputMbps float64   `json:"throughput_mbps"`
+	Parallel       int       `json:"parallel"`
+	Iterations     int       `json:"iterations,omitempty"`  // number of test iterations
+	AllResults     []float64 `json:"all_results,omitempty"` // throughput of each iteration (Mbps)
+	StdDev         float64   `json:"std_dev,omitempty"`     // standard deviation (Mbps)
+	Errors         []string  `json:"errors,omitempty"`
 }
 
 // LatencyUnderLoadResult represents latency under load test results

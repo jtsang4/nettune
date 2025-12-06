@@ -36,12 +36,62 @@ func NewProfileService(profilesDir string, logger *zap.Logger) (*ProfileService,
 		return nil, fmt.Errorf("failed to create profiles directory: %w", err)
 	}
 
+	// Copy builtin profiles to profiles directory if they don't exist
+	if err := s.copyBuiltinProfiles(); err != nil {
+		logger.Warn("failed to copy builtin profiles", zap.Error(err))
+	}
+
 	// Load profiles
 	if err := s.Reload(); err != nil {
 		return nil, err
 	}
 
 	return s, nil
+}
+
+// copyBuiltinProfiles copies embedded builtin profiles to the profiles directory
+func (s *ProfileService) copyBuiltinProfiles() error {
+	entries, err := builtinProfiles.ReadDir("builtin")
+	if err != nil {
+		return fmt.Errorf("failed to read builtin profiles: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+
+		targetPath := filepath.Join(s.profilesDir, entry.Name())
+
+		// Skip if file already exists
+		if _, err := os.Stat(targetPath); err == nil {
+			s.logger.Debug("builtin profile already exists, skipping",
+				zap.String("file", entry.Name()))
+			continue
+		}
+
+		// Read embedded file
+		data, err := builtinProfiles.ReadFile("builtin/" + entry.Name())
+		if err != nil {
+			s.logger.Warn("failed to read builtin profile",
+				zap.String("file", entry.Name()),
+				zap.Error(err))
+			continue
+		}
+
+		// Write to profiles directory
+		if err := utils.AtomicWriteFile(targetPath, data, 0644); err != nil {
+			s.logger.Warn("failed to copy builtin profile",
+				zap.String("file", entry.Name()),
+				zap.Error(err))
+			continue
+		}
+
+		s.logger.Info("copied builtin profile",
+			zap.String("file", entry.Name()))
+	}
+
+	return nil
 }
 
 // List returns all available profile metadata

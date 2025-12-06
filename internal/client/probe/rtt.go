@@ -125,17 +125,6 @@ func calculateJitter(values []float64) float64 {
 	return sumDiff / float64(len(values))
 }
 
-func mean(values []float64) float64 {
-	if len(values) == 0 {
-		return 0
-	}
-	var sum float64
-	for _, v := range values {
-		sum += v
-	}
-	return sum / float64(len(values))
-}
-
 func percentile(sorted []float64, p int) float64 {
 	if len(sorted) == 0 {
 		return 0

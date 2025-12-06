@@ -193,14 +193,12 @@ func TestProfileServiceList(t *testing.T) {
 		t.Fatalf("NewProfileService failed: %v", err)
 	}
 
-	// Initially empty
-	profiles, err := svc.List()
+	// Get initial count (includes builtin profiles)
+	initialProfiles, err := svc.List()
 	if err != nil {
 		t.Fatalf("List failed: %v", err)
 	}
-	if len(profiles) != 0 {
-		t.Errorf("Expected 0 profiles, got %d", len(profiles))
-	}
+	initialCount := len(initialProfiles)
 
 	// Add profiles
 	for i := 0; i < 3; i++ {
@@ -214,13 +212,14 @@ func TestProfileServiceList(t *testing.T) {
 		}
 	}
 
-	// List again
-	profiles, err = svc.List()
+	// List again - should have 3 more than initial
+	profiles, err := svc.List()
 	if err != nil {
 		t.Fatalf("List failed: %v", err)
 	}
-	if len(profiles) != 3 {
-		t.Errorf("Expected 3 profiles, got %d", len(profiles))
+	expectedCount := initialCount + 3
+	if len(profiles) != expectedCount {
+		t.Errorf("Expected %d profiles, got %d", expectedCount, len(profiles))
 	}
 }
 

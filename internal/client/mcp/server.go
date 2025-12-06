@@ -75,17 +75,20 @@ func (s *Server) registerTools() {
 	// Tool: nettune.test_throughput
 	s.mcpServer.AddTool(
 		mcp.NewTool("nettune.test_throughput",
-			mcp.WithDescription("Measure network throughput (upload or download bandwidth) to the server."),
+			mcp.WithDescription("Measure network throughput (upload or download bandwidth) to the server. Use 'iterations' > 1 for more reliable results with statistical analysis."),
 			mcp.WithString("direction",
 				mcp.Required(),
 				mcp.Description("Test direction: 'download' or 'upload'"),
 				mcp.Enum("download", "upload"),
 			),
 			mcp.WithNumber("bytes",
-				mcp.Description("Number of bytes to transfer (default: 100MB)"),
+				mcp.Description("Number of bytes to transfer per iteration (default: 100MB, use 500MB+ for more accurate results)"),
 			),
 			mcp.WithNumber("parallel",
-				mcp.Description("Number of parallel connections (default: 1)"),
+				mcp.Description("Number of parallel connections (default: 1, use 4-8 for saturating high-bandwidth links)"),
+			),
+			mcp.WithNumber("iterations",
+				mcp.Description("Number of test iterations to run and average (default: 1, use 3-5 for reliable results)"),
 			),
 		),
 		s.handleTestThroughput,
@@ -199,14 +202,15 @@ func (s *Server) handleTestThroughput(ctx context.Context, request mcp.CallToolR
 	direction := getStringArg(args, "direction", "download")
 	bytes := getInt64Arg(args, "bytes", 100*1024*1024)
 	parallel := getIntArg(args, "parallel", 1)
+	iterations := getIntArg(args, "iterations", 1)
 
 	var result *types.ThroughputResult
 	var err error
 
 	if direction == "download" {
-		result, err = s.tpTester.TestDownload(bytes, parallel)
+		result, err = s.tpTester.TestDownloadWithIterations(bytes, parallel, iterations)
 	} else {
-		result, err = s.tpTester.TestUpload(bytes, parallel)
+		result, err = s.tpTester.TestUploadWithIterations(bytes, parallel, iterations)
 	}
 
 	if err != nil {

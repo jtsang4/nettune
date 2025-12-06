@@ -7,11 +7,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RateLimiter implements a simple token bucket rate limiter
+// RateLimiter implements a token bucket rate limiter with burst support
 type RateLimiter struct {
 	requests map[string]*bucket
 	mu       sync.Mutex
 	rate     int // requests per interval
+	burst    int // max burst size
 	interval time.Duration
 }
 
@@ -20,11 +21,16 @@ type bucket struct {
 	lastReset time.Time
 }
 
-// NewRateLimiter creates a new rate limiter
-func NewRateLimiter(rate int, interval time.Duration) *RateLimiter {
+// NewRateLimiter creates a new rate limiter with burst support
+// burst defaults to rate if set to 0
+func NewRateLimiter(rate int, burst int, interval time.Duration) *RateLimiter {
+	if burst <= 0 {
+		burst = rate
+	}
 	return &RateLimiter{
 		requests: make(map[string]*bucket),
 		rate:     rate,
+		burst:    burst,
 		interval: interval,
 	}
 }
@@ -38,17 +44,29 @@ func (r *RateLimiter) Allow(key string) bool {
 	b, exists := r.requests[key]
 	if !exists {
 		r.requests[key] = &bucket{
-			tokens:    r.rate - 1,
+			tokens:    r.burst - 1,
 			lastReset: now,
 		}
 		return true
 	}
 
-	// Reset tokens if interval has passed
-	if now.Sub(b.lastReset) >= r.interval {
-		b.tokens = r.rate - 1
+	// Refill tokens based on elapsed time
+	elapsed := now.Sub(b.lastReset)
+	if elapsed >= r.interval {
+		// Full refill
+		b.tokens = r.burst - 1
 		b.lastReset = now
 		return true
+	}
+
+	// Partial refill: add tokens proportionally to elapsed time
+	tokensToAdd := int(float64(r.rate) * float64(elapsed) / float64(r.interval))
+	if tokensToAdd > 0 {
+		b.tokens += tokensToAdd
+		if b.tokens > r.burst {
+			b.tokens = r.burst
+		}
+		b.lastReset = now
 	}
 
 	if b.tokens > 0 {

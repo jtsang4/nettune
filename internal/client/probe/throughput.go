@@ -19,123 +19,179 @@ func NewThroughputTester(client *http.Client) *ThroughputTester {
 	return &ThroughputTester{client: client}
 }
 
-// TestDownload performs download throughput test
+// TestDownload performs download throughput test with multiple iterations
 func (t *ThroughputTester) TestDownload(bytes int64, parallel int) (*types.ThroughputResult, error) {
+	return t.TestDownloadWithIterations(bytes, parallel, 1)
+}
+
+// TestDownloadWithIterations performs download throughput test with specified iterations
+func (t *ThroughputTester) TestDownloadWithIterations(bytes int64, parallel, iterations int) (*types.ThroughputResult, error) {
 	if bytes <= 0 {
 		bytes = 100 * 1024 * 1024 // 100MB default
 	}
 	if parallel <= 0 {
 		parallel = 1
 	}
-
-	bytesPerConnection := bytes / int64(parallel)
-	var wg sync.WaitGroup
-
-	type connResult struct {
-		bytes    int64
-		duration time.Duration
-		err      error
-	}
-	results := make(chan connResult, parallel)
-
-	start := time.Now()
-
-	for i := 0; i < parallel; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			received, duration, err := t.client.ProbeDownload(bytesPerConnection)
-			results <- connResult{bytes: received, duration: duration, err: err}
-		}()
+	if iterations <= 0 {
+		iterations = 1
 	}
 
-	wg.Wait()
-	totalDuration := time.Since(start)
-	close(results)
-
+	var allResults []float64
 	var totalBytes int64
-	var errs []string
-	for r := range results {
-		totalBytes += r.bytes
-		if r.err != nil {
-			errs = append(errs, r.err.Error())
+	var totalDuration time.Duration
+	var allErrors []string
+
+	for iter := 0; iter < iterations; iter++ {
+		bytesPerConnection := bytes / int64(parallel)
+		var wg sync.WaitGroup
+
+		type connResult struct {
+			bytes    int64
+			duration time.Duration
+			err      error
 		}
+		results := make(chan connResult, parallel)
+
+		start := time.Now()
+
+		for i := 0; i < parallel; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				received, duration, err := t.client.ProbeDownload(bytesPerConnection)
+				results <- connResult{bytes: received, duration: duration, err: err}
+			}()
+		}
+
+		wg.Wait()
+		iterDuration := time.Since(start)
+		close(results)
+
+		var iterBytes int64
+		for r := range results {
+			iterBytes += r.bytes
+			if r.err != nil {
+				allErrors = append(allErrors, r.err.Error())
+			}
+		}
+
+		totalBytes += iterBytes
+		totalDuration += iterDuration
+		iterThroughput := float64(iterBytes*8) / float64(iterDuration.Milliseconds()) / 1000
+		allResults = append(allResults, iterThroughput)
 	}
 
-	throughputMbps := float64(totalBytes*8) / float64(totalDuration.Milliseconds()) / 1000
+	avgThroughput := mean(allResults)
+	stdDev := standardDeviation(allResults, avgThroughput)
 
-	return &types.ThroughputResult{
+	result := &types.ThroughputResult{
 		Direction:      "download",
 		Bytes:          totalBytes,
 		DurationMs:     totalDuration.Milliseconds(),
-		ThroughputMbps: throughputMbps,
+		ThroughputMbps: avgThroughput,
 		Parallel:       parallel,
-		Errors:         errs,
-	}, nil
+		Errors:         allErrors,
+	}
+
+	if iterations > 1 {
+		result.Iterations = iterations
+		result.AllResults = allResults
+		result.StdDev = stdDev
+	}
+
+	return result, nil
 }
 
-// TestUpload performs upload throughput test
+// TestUpload performs upload throughput test with multiple iterations
 func (t *ThroughputTester) TestUpload(bytes int64, parallel int) (*types.ThroughputResult, error) {
+	return t.TestUploadWithIterations(bytes, parallel, 1)
+}
+
+// TestUploadWithIterations performs upload throughput test with specified iterations
+func (t *ThroughputTester) TestUploadWithIterations(bytes int64, parallel, iterations int) (*types.ThroughputResult, error) {
 	if bytes <= 0 {
 		bytes = 100 * 1024 * 1024 // 100MB default
 	}
 	if parallel <= 0 {
 		parallel = 1
 	}
+	if iterations <= 0 {
+		iterations = 1
+	}
 
 	bytesPerConnection := bytes / int64(parallel)
-	var wg sync.WaitGroup
-
-	type connResult struct {
-		bytes    int64
-		duration time.Duration
-		err      error
-	}
-	results := make(chan connResult, parallel)
-
-	// Generate random data
+	// Generate random data once, reuse across iterations
 	data := make([]byte, bytesPerConnection)
 	rand.Read(data)
 
-	start := time.Now()
-
-	for i := 0; i < parallel; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			uploadStart := time.Now()
-			resp, err := t.client.ProbeUpload(data)
-			duration := time.Since(uploadStart)
-
-			if err != nil {
-				results <- connResult{err: err, duration: duration}
-				return
-			}
-			results <- connResult{bytes: resp.ReceivedBytes, duration: duration}
-		}()
-	}
-
-	wg.Wait()
-	totalDuration := time.Since(start)
-	close(results)
-
+	var allResults []float64
 	var totalBytes int64
-	var errs []string
-	for r := range results {
-		totalBytes += r.bytes
-		if r.err != nil {
-			errs = append(errs, r.err.Error())
+	var totalDuration time.Duration
+	var allErrors []string
+
+	for iter := 0; iter < iterations; iter++ {
+		var wg sync.WaitGroup
+
+		type connResult struct {
+			bytes    int64
+			duration time.Duration
+			err      error
 		}
+		results := make(chan connResult, parallel)
+
+		start := time.Now()
+
+		for i := 0; i < parallel; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				uploadStart := time.Now()
+				resp, err := t.client.ProbeUpload(data)
+				duration := time.Since(uploadStart)
+
+				if err != nil {
+					results <- connResult{err: err, duration: duration}
+					return
+				}
+				results <- connResult{bytes: resp.ReceivedBytes, duration: duration}
+			}()
+		}
+
+		wg.Wait()
+		iterDuration := time.Since(start)
+		close(results)
+
+		var iterBytes int64
+		for r := range results {
+			iterBytes += r.bytes
+			if r.err != nil {
+				allErrors = append(allErrors, r.err.Error())
+			}
+		}
+
+		totalBytes += iterBytes
+		totalDuration += iterDuration
+		iterThroughput := float64(iterBytes*8) / float64(iterDuration.Milliseconds()) / 1000
+		allResults = append(allResults, iterThroughput)
 	}
 
-	throughputMbps := float64(totalBytes*8) / float64(totalDuration.Milliseconds()) / 1000
+	avgThroughput := mean(allResults)
+	stdDev := standardDeviation(allResults, avgThroughput)
 
-	return &types.ThroughputResult{
+	result := &types.ThroughputResult{
 		Direction:      "upload",
 		Bytes:          totalBytes,
 		DurationMs:     totalDuration.Milliseconds(),
-		ThroughputMbps: throughputMbps,
+		ThroughputMbps: avgThroughput,
 		Parallel:       parallel,
-		Errors:         errs,
-	}, nil
+		Errors:         allErrors,
+	}
+
+	if iterations > 1 {
+		result.Iterations = iterations
+		result.AllResults = allResults
+		result.StdDev = stdDev
+	}
+
+	return result, nil
 }

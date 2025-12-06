@@ -82,8 +82,8 @@ func NewServer(cfg *config.ServerConfig, logger *zap.Logger) (*Server, error) {
 func (s *Server) setupRouter() {
 	router := gin.New()
 
-	// Create rate limiter (100 requests per minute)
-	rateLimiter := middleware.NewRateLimiter(100, time.Minute)
+	// Create rate limiter (100000 requests per minute with burst of 20000 for network testing)
+	rateLimiter := middleware.NewRateLimiter(100000, 20000, time.Minute)
 
 	// Global middleware
 	router.Use(gin.Recovery())
