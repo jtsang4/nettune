@@ -1,6 +1,6 @@
 {
   "name": "@jtsang/nettune-mcp",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": false,
   "description": "MCP stdio wrapper for nettune - TCP network optimization tool",
   "type": "module",
