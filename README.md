@@ -254,10 +254,9 @@ When creating a custom profile with `nettune.create_profile`, follow these guide
 | `net.ipv4.tcp_slow_start_after_idle` | Slow start behavior | 1 (safe) | 0 (better for persistent connections) |
 
 **Buffer Size Calculation (for high-BDP links):**
-```
 Required buffer = Bandwidth (bytes/sec) × RTT (seconds) × 2
 Example: 1 Gbps link with 100ms RTT = 125MB/s × 0.1s × 2 = 25MB
-```
+
 
 **Qdisc Selection:**
 - `fq` (Fair Queue): Best for BBR, provides flow isolation
