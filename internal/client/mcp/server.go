@@ -180,6 +180,50 @@ func (s *Server) registerTools() {
 		),
 		s.handleStatus,
 	)
+
+	// Tool: nettune.create_profile
+	s.mcpServer.AddTool(
+		mcp.NewTool("nettune.create_profile",
+			mcp.WithDescription("Create a new configuration profile for network optimization. The profile can then be applied using nettune.apply_profile."),
+			mcp.WithString("id",
+				mcp.Required(),
+				mcp.Description("Unique profile ID (alphanumeric with hyphens, e.g., 'my-custom-profile')"),
+			),
+			mcp.WithString("name",
+				mcp.Required(),
+				mcp.Description("Human-readable profile name (e.g., 'Low Latency Gaming Profile')"),
+			),
+			mcp.WithString("description",
+				mcp.Description("Detailed description of what this profile does and when to use it"),
+			),
+			mcp.WithString("risk_level",
+				mcp.Required(),
+				mcp.Description("Risk level of the profile"),
+				mcp.Enum("low", "medium", "high"),
+			),
+			mcp.WithBoolean("requires_reboot",
+				mcp.Description("Whether applying this profile requires a system reboot (default: false)"),
+			),
+			mcp.WithObject("sysctl",
+				mcp.Description("Sysctl parameters to set. Keys are sysctl paths (e.g., 'net.core.rmem_max'), values are the desired settings."),
+			),
+			mcp.WithString("qdisc_type",
+				mcp.Description("Queue discipline type for traffic control"),
+				mcp.Enum("fq", "fq_codel", "cake", "pfifo_fast"),
+			),
+			mcp.WithString("qdisc_interfaces",
+				mcp.Description("Which interfaces to apply qdisc to"),
+				mcp.Enum("default-route", "all"),
+			),
+			mcp.WithObject("qdisc_params",
+				mcp.Description("Additional qdisc parameters (type-specific, e.g., {'flow_limit': '10000'} for fq)"),
+			),
+			mcp.WithBoolean("systemd_ensure_qdisc_service",
+				mcp.Description("Whether to create a systemd service to persist qdisc settings across reboots (default: false)"),
+			),
+		),
+		s.handleCreateProfile,
+	)
 }
 
 // Tool handlers
@@ -338,6 +382,79 @@ func (s *Server) handleStatus(ctx context.Context, request mcp.CallToolRequest) 
 	})), nil
 }
 
+func (s *Server) handleCreateProfile(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := parseArgs(request.Params.Arguments)
+
+	// Required fields
+	id := getStringArg(args, "id", "")
+	name := getStringArg(args, "name", "")
+	riskLevel := getStringArg(args, "risk_level", "")
+
+	if id == "" {
+		return mcp.NewToolResultError("Error: id is required"), nil
+	}
+	if name == "" {
+		return mcp.NewToolResultError("Error: name is required"), nil
+	}
+	if riskLevel == "" {
+		return mcp.NewToolResultError("Error: risk_level is required"), nil
+	}
+
+	// Optional fields
+	description := getStringArg(args, "description", "")
+	requiresReboot := getBoolArg(args, "requires_reboot", false)
+
+	// Build profile
+	profile := &types.Profile{
+		ID:             id,
+		Name:           name,
+		Description:    description,
+		RiskLevel:      riskLevel,
+		RequiresReboot: requiresReboot,
+	}
+
+	// Parse sysctl (map[string]interface{})
+	if sysctl := getMapArg(args, "sysctl"); sysctl != nil {
+		profile.Sysctl = sysctl
+	}
+
+	// Parse qdisc config
+	qdiscType := getStringArg(args, "qdisc_type", "")
+	qdiscInterfaces := getStringArg(args, "qdisc_interfaces", "")
+	if qdiscType != "" {
+		profile.Qdisc = &types.QdiscConfig{
+			Type:       qdiscType,
+			Interfaces: qdiscInterfaces,
+		}
+		if qdiscInterfaces == "" {
+			profile.Qdisc.Interfaces = "default-route" // default
+		}
+		if qdiscParams := getMapArg(args, "qdisc_params"); qdiscParams != nil {
+			profile.Qdisc.Params = qdiscParams
+		}
+	}
+
+	// Parse systemd config
+	ensureQdiscService := getBoolArg(args, "systemd_ensure_qdisc_service", false)
+	if ensureQdiscService {
+		profile.Systemd = &types.SystemdConfig{
+			EnsureQdiscService: true,
+		}
+	}
+
+	// Create profile via HTTP client
+	result, err := s.client.CreateProfile(profile)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Error creating profile: %v", err)), nil
+	}
+
+	return mcp.NewToolResultText(toJSON(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Profile '%s' created successfully", id),
+		"profile": result,
+	})), nil
+}
+
 // Helper functions for argument parsing
 
 // parseArgs converts the any type arguments to map[string]interface{}
@@ -402,6 +519,15 @@ func getBoolArg(args map[string]interface{}, key string, defaultVal bool) bool {
 		}
 	}
 	return defaultVal
+}
+
+func getMapArg(args map[string]interface{}, key string) map[string]interface{} {
+	if v, ok := args[key]; ok {
+		if m, ok := v.(map[string]interface{}); ok {
+			return m
+		}
+	}
+	return nil
 }
 
 func toJSON(v interface{}) string {

@@ -109,6 +109,7 @@ Once connected, the following tools are available:
 | `nettune.snapshot_server` | Create a server state snapshot |
 | `nettune.list_profiles` | List available optimization profiles |
 | `nettune.show_profile` | Show details of a specific profile |
+| `nettune.create_profile` | Create a custom optimization profile |
 | `nettune.apply_profile` | Apply an optimization profile |
 | `nettune.rollback` | Rollback to a previous snapshot |
 | `nettune.status` | Get current server status |

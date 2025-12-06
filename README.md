@@ -61,6 +61,7 @@ Or use the NPM wrapper:
 | `nettune.snapshot_server`         | Create a configuration snapshot for rollback        |
 | `nettune.list_profiles`           | List available optimization profiles                |
 | `nettune.show_profile`            | Show details of a specific profile                  |
+| `nettune.create_profile`          | Create a custom optimization profile                |
 | `nettune.apply_profile`           | Apply a profile (dry_run or commit mode)            |
 | `nettune.rollback`                | Rollback to a previous snapshot                     |
 | `nettune.status`                  | Get current server status and configuration         |
@@ -139,6 +140,7 @@ Flags:
 ### Profile Endpoints
 
 - `GET /profiles` - List profiles
+- `POST /profiles` - Create a new profile
 - `GET /profiles/:id` - Get profile details
 
 ### System Endpoints
@@ -205,22 +207,63 @@ Analyze the baseline results to classify the network situation:
 - Diagnosis: Current configuration is performing well
 - Recommended action: No changes needed; document current state
 
-### Phase 3: Profile Selection
+### Phase 3: Profile Selection or Creation
 
 Based on diagnosis:
 
 1. Call `nettune.list_profiles` to see available profiles
 2. Call `nettune.show_profile` for candidate profiles to understand their settings
-3. Select the most appropriate profile based on:
-   - User's stated goal (throughput vs latency vs balanced)
-   - Diagnosed issue type
-   - Server's current state
+3. Decide whether to use an existing profile or create a custom one:
+
+**Use existing profile when:**
+- A built-in profile closely matches the diagnosed issue
+- User wants a conservative, well-tested configuration
+- The network situation fits a common pattern (Type A or B)
+
+**Create custom profile when:**
+- Existing profiles don't address the specific issue
+- User has special requirements (e.g., specific buffer sizes, particular qdisc)
+- Fine-tuned parameters are needed based on measured BDP
+- Combining settings from multiple profiles would be beneficial
 
 Profile selection guidelines:
 - For Type A issues: Start with `bbr-fq-tuned-32mb` (increased buffers)
 - For Type B issues: Start with `bbr-fq-default` (conservative, with FQ qdisc)
-- For high-BDP links (high bandwidth × high RTT): Prefer larger buffer profiles
+- For high-BDP links (high bandwidth × high RTT): Prefer larger buffer profiles or create custom with calculated buffer sizes
 - For low-latency requirements: Prefer profiles without aggressive buffering
+
+### Creating Custom Profiles
+
+When creating a custom profile with `nettune.create_profile`, follow these guidelines:
+
+**Risk Level Selection:**
+- `low`: Only safe, widely-tested settings (e.g., enabling BBR, basic FQ)
+- `medium`: Moderate buffer increases, standard optimizations
+- `high`: Aggressive tuning, large buffers, experimental settings
+
+**Sysctl Parameter Guidelines:**
+
+| Parameter | Purpose | Conservative | Aggressive |
+|-----------|---------|--------------|------------|
+| `net.core.rmem_max` | Max receive buffer | 16MB | 64MB+ |
+| `net.core.wmem_max` | Max send buffer | 16MB | 64MB+ |
+| `net.ipv4.tcp_rmem` | TCP receive buffer (min/default/max) | "4096 131072 16777216" | "4096 524288 67108864" |
+| `net.ipv4.tcp_wmem` | TCP send buffer (min/default/max) | "4096 65536 16777216" | "4096 524288 67108864" |
+| `net.ipv4.tcp_congestion_control` | Congestion algorithm | bbr | bbr |
+| `net.ipv4.tcp_mtu_probing` | MTU discovery | 1 | 1 |
+| `net.ipv4.tcp_slow_start_after_idle` | Slow start behavior | 1 (safe) | 0 (better for persistent connections) |
+
+**Buffer Size Calculation (for high-BDP links):**
+```
+Required buffer = Bandwidth (bytes/sec) × RTT (seconds) × 2
+Example: 1 Gbps link with 100ms RTT = 125MB/s × 0.1s × 2 = 25MB
+```
+
+**Qdisc Selection:**
+- `fq` (Fair Queue): Best for BBR, provides flow isolation
+- `fq_codel`: Good for reducing bufferbloat, AQM built-in
+- `cake`: Advanced shaping, good for limited bandwidth scenarios
+- `pfifo_fast`: Default, minimal processing overhead
 
 ### Phase 4: Safe Application
 
@@ -277,6 +320,13 @@ Provide a summary including:
 - Compare latency during load vs baseline
 - RTT inflation > 2x suggests buffering issues
 
+### nettune.create_profile
+- Use when existing profiles don't match the diagnosed issue
+- Calculate buffer sizes based on measured bandwidth × RTT × 2
+- Start with `risk_level: "medium"` unless you have specific reasons
+- Always include a clear description explaining the profile's purpose
+- For high-BDP scenarios, set appropriate tcp_rmem/tcp_wmem based on BDP calculation
+
 ### nettune.apply_profile
 - ALWAYS use dry_run first
 - ALWAYS set auto_rollback_seconds for commit
@@ -317,11 +367,12 @@ When recommending changes:
 1. Runs baseline tests (status, RTT, throughput, latency-under-load)
 2. Analyzes results and classifies the issue
 3. Lists and reviews available profiles
-4. Creates a snapshot
-5. Does a dry-run and explains proposed changes
-6. After user approval, commits with auto-rollback
-7. Re-runs tests and compares results
-8. Provides a comprehensive summary
+4. Selects an existing profile OR creates a custom profile based on diagnosis
+5. Creates a snapshot
+6. Does a dry-run and explains proposed changes
+7. After user approval, commits with auto-rollback
+8. Re-runs tests and compares results
+9. Provides a comprehensive summary
 
 ## Troubleshooting
 

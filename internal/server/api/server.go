@@ -118,6 +118,7 @@ func (s *Server) setupRouter() {
 	profiles := authorized.Group("/profiles")
 	{
 		profiles.GET("", profileHandler.List)
+		profiles.POST("", profileHandler.Create)
 		profiles.GET("/:id", profileHandler.Get)
 	}
 

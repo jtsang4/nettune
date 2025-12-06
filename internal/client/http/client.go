@@ -207,6 +207,23 @@ func (c *Client) GetProfile(id string) (*types.Profile, error) {
 	return &result, nil
 }
 
+// CreateProfile calls POST /profiles to create a new profile
+func (c *Client) CreateProfile(profile *types.Profile) (*types.ProfileMeta, error) {
+	resp, err := c.doRequest("POST", "/profiles", profile)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.Success {
+		return nil, resp.Error
+	}
+
+	var result types.ProfileMeta
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // CreateSnapshot calls POST /sys/snapshot
 func (c *Client) CreateSnapshot() (*types.Snapshot, error) {
 	resp, err := c.doRequest("POST", "/sys/snapshot", nil)
