@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -100,8 +101,8 @@ func (s *ApplyService) Apply(req *types.ApplyRequest) (*types.ApplyResult, error
 			zap.String("profile", profile.ID),
 			zap.Error(err))
 
-		// Rollback on failure
-		if rollbackErr := s.Rollback(snapshot.ID); rollbackErr != nil {
+		// Rollback on failure (use internal method since we already hold the lock)
+		if rollbackErr := s.rollbackInternal(snapshot.ID); rollbackErr != nil {
 			s.logger.Error("rollback failed", zap.Error(rollbackErr))
 			result.Errors = append(result.Errors, fmt.Sprintf("apply failed: %v; rollback also failed: %v", err, rollbackErr))
 		} else {
@@ -119,7 +120,8 @@ func (s *ApplyService) Apply(req *types.ApplyRequest) (*types.ApplyResult, error
 		s.logger.Error("verification failed, rolling back",
 			zap.String("profile", profile.ID))
 
-		if rollbackErr := s.Rollback(snapshot.ID); rollbackErr != nil {
+		// Use internal method since we already hold the lock
+		if rollbackErr := s.rollbackInternal(snapshot.ID); rollbackErr != nil {
 			s.logger.Error("rollback failed", zap.Error(rollbackErr))
 			result.Errors = append(result.Errors, fmt.Sprintf("verification failed; rollback also failed: %v", rollbackErr))
 		} else {
@@ -144,7 +146,7 @@ func (s *ApplyService) Apply(req *types.ApplyRequest) (*types.ApplyResult, error
 	return result, nil
 }
 
-// Rollback restores a previous snapshot
+// Rollback restores a previous snapshot (acquires lock)
 func (s *ApplyService) Rollback(snapshotID string) error {
 	s.mu.Lock()
 	if s.applyLock {
@@ -160,6 +162,11 @@ func (s *ApplyService) Rollback(snapshotID string) error {
 		s.mu.Unlock()
 	}()
 
+	return s.rollbackInternal(snapshotID)
+}
+
+// rollbackInternal performs the rollback without acquiring lock (caller must hold lock)
+func (s *ApplyService) rollbackInternal(snapshotID string) error {
 	snapshot, err := s.snapshotService.Get(snapshotID)
 	if err != nil {
 		return err
@@ -256,8 +263,9 @@ func (s *ApplyService) generatePlan(profile *types.Profile, currentState *types.
 	if profile.Sysctl != nil {
 		for key, newValue := range profile.Sysctl {
 			oldValue := currentState.Sysctl[key]
-			newValueStr := fmt.Sprintf("%v", newValue)
-			if oldValue != newValueStr {
+			newValueStr := formatSysctlValue(newValue)
+			// Normalize both values for comparison
+			if normalizeSysctlValue(oldValue) != normalizeSysctlValue(newValueStr) {
 				plan.SysctlChanges[key] = &types.Change{
 					From: oldValue,
 					To:   newValueStr,
@@ -312,7 +320,7 @@ func (s *ApplyService) applyChanges(profile *types.Profile) error {
 	if profile.Sysctl != nil {
 		sysctlValues := make(map[string]string)
 		for key, value := range profile.Sysctl {
-			sysctlValues[key] = fmt.Sprintf("%v", value)
+			sysctlValues[key] = formatSysctlValue(value)
 		}
 
 		// Write to persistent file
@@ -378,8 +386,9 @@ func (s *ApplyService) verifyChanges(profile *types.Profile) *types.Verification
 				continue
 			}
 
-			expectedStr := fmt.Sprintf("%v", expectedValue)
-			if actualValue != expectedStr {
+			expectedStr := formatSysctlValue(expectedValue)
+			// Normalize both values (handle tab/space differences in tcp_rmem, tcp_wmem, etc.)
+			if normalizeSysctlValue(actualValue) != normalizeSysctlValue(expectedStr) {
 				result.SysctlOK = false
 				result.Errors = append(result.Errors, fmt.Sprintf("sysctl %s: expected %s, got %s", key, expectedStr, actualValue))
 			}
@@ -453,4 +462,36 @@ func (s *ApplyService) ensureQdiscService(qdiscType string, interfaces []string)
 	}
 
 	return nil
+}
+
+// formatSysctlValue formats a sysctl value to string, handling numeric types to avoid scientific notation
+func formatSysctlValue(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case float64:
+		// Avoid scientific notation for large integers
+		if v == float64(int64(v)) {
+			return fmt.Sprintf("%d", int64(v))
+		}
+		return fmt.Sprintf("%v", v)
+	case int, int32, int64:
+		return fmt.Sprintf("%d", v)
+	case uint, uint32, uint64:
+		return fmt.Sprintf("%d", v)
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+// normalizeSysctlValue normalizes whitespace in sysctl values for comparison
+// This handles cases where tcp_rmem/tcp_wmem values use tabs vs spaces
+func normalizeSysctlValue(value string) string {
+	// Replace tabs with spaces, then normalize multiple spaces to single space
+	result := strings.ReplaceAll(value, "\t", " ")
+	// Normalize multiple spaces
+	for strings.Contains(result, "  ") {
+		result = strings.ReplaceAll(result, "  ", " ")
+	}
+	return strings.TrimSpace(result)
 }

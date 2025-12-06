@@ -311,7 +311,10 @@ Provide a summary including:
 
 ### nettune.test_throughput
 - Test both download and upload directions
-- Use appropriate byte sizes (larger for high bandwidth)
+- Use appropriate byte sizes based on network conditions:
+  - High bandwidth, low latency: 500MB+ for accurate results
+  - High latency or unstable networks: 50-100MB with iterations=3-5 for reliability
+- Use parallel=4-8 for saturating high-bandwidth links
 - Compare single vs parallel connections to detect buffer limits
 
 ### nettune.test_latency_under_load
@@ -325,6 +328,7 @@ Provide a summary including:
 - Start with `risk_level: "medium"` unless you have specific reasons
 - Always include a clear description explaining the profile's purpose
 - For high-BDP scenarios, set appropriate tcp_rmem/tcp_wmem based on BDP calculation
+- Sysctl values can be integers or strings; large values like 33554432 are handled correctly
 
 ### nettune.apply_profile
 - ALWAYS use dry_run first

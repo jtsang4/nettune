@@ -14,20 +14,43 @@ import (
 
 // Client is an HTTP client for the nettune server
 type Client struct {
-	baseURL    string
-	apiKey     string
-	httpClient *http.Client
+	baseURL        string
+	apiKey         string
+	httpClient     *http.Client
+	defaultTimeout time.Duration
 }
 
 // NewClient creates a new HTTP client
 func NewClient(baseURL, apiKey string, timeout time.Duration) *Client {
 	return &Client{
-		baseURL: baseURL,
-		apiKey:  apiKey,
+		baseURL:        baseURL,
+		apiKey:         apiKey,
+		defaultTimeout: timeout,
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
 	}
+}
+
+// calculateProbeTimeout calculates an appropriate timeout for probe operations
+// based on bytes to transfer, assuming a minimum bandwidth of 0.5 Mbps
+func (c *Client) calculateProbeTimeout(bytes int64) time.Duration {
+	// Minimum 0.5 Mbps = 62500 bytes/sec
+	const minBandwidthBps = 62500
+	const minTimeout = 30 * time.Second
+	const maxTimeout = 10 * time.Minute
+
+	// Calculate time needed at minimum bandwidth, with 2x buffer
+	needed := time.Duration(bytes/minBandwidthBps*2) * time.Second
+
+	// Apply bounds
+	if needed < minTimeout {
+		return minTimeout
+	}
+	if needed > maxTimeout {
+		return maxTimeout
+	}
+	return needed
 }
 
 // Response represents a server response
@@ -102,7 +125,12 @@ func (c *Client) ProbeDownload(bytes int64) (int64, time.Duration, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
-	resp, err := c.httpClient.Do(req)
+	// Use a custom client with dynamic timeout based on bytes
+	probeClient := &http.Client{
+		Timeout: c.calculateProbeTimeout(bytes),
+	}
+
+	resp, err := probeClient.Do(req)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -127,7 +155,12 @@ func (c *Client) ProbeUpload(data []byte) (*types.UploadResponse, error) {
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/octet-stream")
 
-	resp, err := c.httpClient.Do(req)
+	// Use a custom client with dynamic timeout based on data size
+	probeClient := &http.Client{
+		Timeout: c.calculateProbeTimeout(int64(len(data))),
+	}
+
+	resp, err := probeClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
