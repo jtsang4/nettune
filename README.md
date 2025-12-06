@@ -180,12 +180,6 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-### Required Secrets
-
-Configure these secrets in your GitHub repository settings:
-
-- **NPM_TOKEN**: NPM access token for publishing the `@jtsang/nettune-mcp` package
-
 ### Manual Testing
 
 ```bash
