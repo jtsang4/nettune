@@ -172,10 +172,13 @@ func (s *ApplyService) rollbackInternal(snapshotID string) error {
 		return err
 	}
 
+	var rollbackErrors []string
+
 	// Restore sysctl values
 	if snapshot.State.Sysctl != nil {
 		if err := s.adapter.Sysctl.SetMultiple(snapshot.State.Sysctl); err != nil {
 			s.logger.Error("failed to restore sysctl", zap.Error(err))
+			rollbackErrors = append(rollbackErrors, fmt.Sprintf("restore sysctl failed: %v", err))
 		}
 	}
 
@@ -185,13 +188,19 @@ func (s *ApplyService) rollbackInternal(snapshotID string) error {
 			s.logger.Error("failed to restore file",
 				zap.String("path", path),
 				zap.Error(err))
+			rollbackErrors = append(rollbackErrors, fmt.Sprintf("restore file %s failed: %v", path, err))
 		}
 	}
 
 	// Reload sysctl from restored file
 	sysctlFile := "/etc/sysctl.d/99-nettune.conf"
 	if _, ok := snapshot.Backups[sysctlFile]; ok {
-		s.adapter.Sysctl.LoadFromFile(sysctlFile)
+		if err := s.adapter.Sysctl.LoadFromFile(sysctlFile); err != nil {
+			s.logger.Error("failed to reload sysctl from restored file",
+				zap.String("path", sysctlFile),
+				zap.Error(err))
+			rollbackErrors = append(rollbackErrors, fmt.Sprintf("reload sysctl file %s failed: %v", sysctlFile, err))
+		}
 	}
 
 	// Restore qdisc
@@ -201,12 +210,20 @@ func (s *ApplyService) rollbackInternal(snapshotID string) error {
 				s.logger.Error("failed to restore qdisc",
 					zap.String("interface", iface),
 					zap.Error(err))
+				rollbackErrors = append(rollbackErrors, fmt.Sprintf("restore qdisc for %s failed: %v", iface, err))
 			}
 		}
 	}
 
 	if s.historyService != nil {
-		s.historyService.RecordRollback(snapshotID, true)
+		s.historyService.RecordRollback(snapshotID, len(rollbackErrors) == 0)
+	}
+
+	if len(rollbackErrors) > 0 {
+		s.logger.Error("rollback completed with errors",
+			zap.String("snapshot", snapshotID),
+			zap.Strings("errors", rollbackErrors))
+		return fmt.Errorf("%w: %s", types.ErrRollbackFailed, strings.Join(rollbackErrors, "; "))
 	}
 
 	s.logger.Info("rolled back to snapshot", zap.String("snapshot", snapshotID))
